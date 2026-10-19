@@ -23,6 +23,7 @@ import torch.optim as optim
 
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader
+from sklearn.model_selection import train_test_split
 
 # project root
 sys.path.append(
@@ -42,7 +43,6 @@ from config.config import (
 
     DATA_ROOT,
     TRAIN_SPLIT,
-    TEST_SPLIT,
 
     FEATURE_LEVEL,
     PRETRAINED,
@@ -80,6 +80,56 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 # ==========================================================
+# Create Stratified Train/Validation Split
+# ==========================================================
+def create_train_val_split(train_split, seed, val_ratio=0.1):
+    """
+    Create deterministic, stratified train/validation splits
+    from the official training split.
+    """
+
+    train_split = Path(train_split)
+
+    paths = [
+        line.strip()
+        for line in train_split.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    labels = [
+        Path(image_path).parent.name
+        for image_path in paths
+    ]
+
+    if len(paths) != len(set(paths)):
+        raise ValueError("Duplicate image paths found in training split.")
+
+    train_paths, val_paths = train_test_split(
+        paths,
+        test_size=val_ratio,
+        random_state=seed,
+        shuffle=True,
+        stratify=labels,
+    )
+
+    output_dir = train_split.parent
+
+    train_output = output_dir / "color_train_internal.txt"
+    val_output = output_dir / "color_val.txt"
+
+    train_output.write_text(
+        "\n".join(train_paths) + "\n",
+        encoding="utf-8",
+    )
+
+    val_output.write_text(
+        "\n".join(val_paths) + "\n",
+        encoding="utf-8",
+    )
+
+    return train_output, val_output
+
+# ==========================================================
 # MAIN
 # ==========================================================
 def main():
@@ -87,22 +137,32 @@ def main():
     # ==========================================================
     # Load Dataset
     # ==========================================================
+    train_split_file, val_split_file = create_train_val_split(
+        train_split=TRAIN_SPLIT,
+        seed=SEED,
+        val_ratio=0.1,
+    )
+
     train_dataset = PlantDataset(
-        split_file=TRAIN_SPLIT,
+        split_file=train_split_file,
         data_root=DATA_ROOT,
-        transform=get_transform(augment=True)
+        transform=get_transform(augment=True),
+        preflight_check=True,
+        fail_on_error=True,
     )
 
     torch.save(
         train_dataset.class_to_idx,
-        CHECKPOINT_DIR / "class_to_idx.pth"
+        CHECKPOINT_DIR / "class_to_idx.pth",
     )
 
     val_dataset = PlantDataset(
-        split_file=TEST_SPLIT,
+        split_file=val_split_file,
         data_root=DATA_ROOT,
         class_to_idx=train_dataset.class_to_idx,
-        transform=get_transform(augment=False)
+        transform=get_transform(augment=False),
+        preflight_check=True,
+        fail_on_error=True,
     )
 
     train_loader = DataLoader(

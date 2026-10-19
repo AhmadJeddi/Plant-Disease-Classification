@@ -17,7 +17,8 @@ data/
     │       └── ...
     │
     └── splits/
-        ├── color_train.txt
+        ├── color_train_internal.txt
+        ├── color_val.txt
         └── color_test.txt
 
 Output:
@@ -92,6 +93,8 @@ class PlantDataset(Dataset):
         data_root: Path,
         transform=None,
         class_to_idx: Dict[str, int] = None,
+        preflight_check: bool = False,
+        fail_on_error: bool = True,
     ):
         """
         Args:
@@ -107,6 +110,14 @@ class PlantDataset(Dataset):
             class_to_idx:
                 Optional predefined class mapping.
                 Useful to keep train/test labels identical.
+
+            preflight_check:
+                Whether to validate image paths and integrity
+                during dataset initialization.
+
+            fail_on_error:
+                Whether to raise an error if missing or
+                corrupted images are detected.
         """
 
         self.data_root = Path(data_root)
@@ -139,6 +150,24 @@ class PlantDataset(Dataset):
             self.class_to_idx = class_to_idx
 
         # ---------------------------------------
+        # Validate class mapping coverage
+        # ---------------------------------------
+        missing_classes = sorted(
+            {
+                label
+                for _, label in self.samples
+                if label not in self.class_to_idx
+            }
+        )
+
+        if missing_classes:
+            raise ValueError(
+                f"Class mapping mismatch in split file: {self.split_file}\n"
+                f"Missing classes: {missing_classes}\n"
+                f"Available class mapping: {self.class_to_idx}"
+            )
+
+        # ---------------------------------------
         # Convert labels to integers
         # ---------------------------------------
         self.samples = [
@@ -156,6 +185,12 @@ class PlantDataset(Dataset):
                 key=lambda x: x[1]
             )
         ]
+
+        # ---------------------------------------
+        # Optional image preflight validation
+        # ---------------------------------------
+        if preflight_check:
+            self.validate_images(fail_on_error=fail_on_error)
 
     # ==================================================
     # Read split file
@@ -207,6 +242,69 @@ class PlantDataset(Dataset):
                 )
 
         return samples
+
+    # ==================================================
+    # Validate dataset images
+    # ==================================================
+    def validate_images(self, fail_on_error: bool = True):
+        """
+        Check image paths and integrity before training.
+
+        Reports missing and corrupted images separately.
+        Optionally raises an error if invalid images are found.
+        """
+
+        missing_files = []
+        corrupted_files = []
+
+        for image_path, _ in self.samples:
+            if not image_path.is_file():
+                missing_files.append(str(image_path))
+                continue
+
+            try:
+                with Image.open(image_path) as image:
+                    image.verify()
+
+                # Ensure the image can also be decoded.
+                with Image.open(image_path) as image:
+                    image.convert("RGB").load()
+
+            except (OSError, ValueError, SyntaxError) as exc:
+                corrupted_files.append(
+                    f"{image_path}: {exc}"
+                )
+
+        print(
+            f"Preflight check: {len(self.samples)} images checked."
+        )
+        print(f"Missing images: {len(missing_files)}")
+        print(f"Corrupted images: {len(corrupted_files)}")
+
+        if missing_files:
+            print("\nMissing files:")
+            for path in missing_files:
+                print(f"  - {path}")
+
+        if corrupted_files:
+            print("\nCorrupted files:")
+            for item in corrupted_files:
+                print(f"  - {item}")
+
+        report = {
+            "missing_files": missing_files,
+            "corrupted_files": corrupted_files,
+        }
+
+        if fail_on_error and (missing_files or corrupted_files):
+            raise RuntimeError(
+                "Dataset preflight validation failed: "
+                f"{len(missing_files)} missing and "
+                f"{len(corrupted_files)} corrupted images. "
+                f"Split file: {self.split_file}"
+            )
+
+        return report
 
     # ==================================================
     # Dataset length

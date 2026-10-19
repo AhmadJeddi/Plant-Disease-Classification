@@ -47,8 +47,9 @@ research.
     -   Channel attention
     -   Spatial attention
 -   Flexible feature-level selection (`c2`, `c3`, `c4`, `c5`)
--   PlantVillage dataset support
--   Official train/test split support
+-   Official PlantVillage train/test split support
+-   Deterministic, stratified train/validation splitting
+-   Optional dataset integrity validation
 -   Data augmentation during training
 -   Automatic checkpoint management
 -   Validation-based model selection:
@@ -117,27 +118,43 @@ Plant-Disease-Classification/
 
 ## Dataset
 
-The experiments use the public **PlantVillage** dataset.
+The project uses the official **[PlantVillage Dataset](https://huggingface.co/datasets/mohanty/PlantVillage)** training and test splits.
 
-Dataset access: [PlantVillage Dataset](https://huggingface.co/datasets/mohanty/PlantVillage)
+To prevent test-set leakage during model selection, the official
+training split is further divided into training (90%) and validation
+(10%) subsets using a deterministic, stratified split.
 
-The dataset contains plant leaf images from multiple crop species and
-disease categories.
+The official test split is kept separate from training, early stopping,
+and checkpoint selection, and is used for final evaluation.
 
-The project uses official split files:
+| Split | Images | Purpose |
+|-------|-------:|---------|
+| Training | 39,236 | Model training |
+| Validation | 4,360 | Early stopping and checkpoint selection |
+| Test | 10,709 | Final evaluation |
 
-    data/
-    └── PlantVillage/
-        ├── raw/
-        │   └── color/
-        │
-        └── splits/
-            ├── color_train.txt
-            └── color_test.txt
+Dataset structure:
 
-Each split file contains relative image paths:
+```text
+data/
+└── PlantVillage/
+    ├── raw/
+    │   └── color/
+    └── splits/
+        ├── color_train.txt
+        ├── color_train_internal.txt
+        ├── color_val.txt
+        └── color_test.txt
+```
 
-    raw/color/Tomato___Late_blight/image_name.JPG
+The internal training and validation split files are generated
+automatically using a fixed random seed.
+
+Each split file contains relative image paths, for example:
+
+```text
+raw/color/Tomato___Late_blight/image_name.JPG
+```
 
 ------------------------------------------------------------------------
 
@@ -255,11 +272,13 @@ python src/training/train.py
 
 Training includes:
 
+-   Deterministic, stratified 90/10 train-validation split
+-   Optional image integrity validation before training
 -   Cross Entropy Loss
 -   Adam optimizer
 -   Data augmentation
--   Validation monitoring
--   Early stopping
+-   Validation-based checkpoint selection
+-   Early stopping based on validation loss
 -   Automatic checkpoint saving
 -   Training curve visualization
 
@@ -303,32 +322,35 @@ Visualizations:
 
 ## Experiments
 
-Two checkpoints are evaluated:
+Two checkpoints are saved based on validation performance:
 
-### Best Validation Loss
+- **Best Validation Loss:** Selected using the lowest validation loss.
+- **Best Validation Accuracy:** Selected using the highest validation accuracy.
 
-Selected based on minimum validation loss.
-
-### Best Validation Accuracy
-
-Selected based on maximum validation accuracy.
-
-Both checkpoints are evaluated using the identical test protocol.
+Both checkpoints are evaluated using the same test protocol.
 
 ------------------------------------------------------------------------
 
 ## Results
 
-The final model was evaluated on the PlantVillage test split containing
-**10,709 images across 38 plant disease classes**.
+The model was evaluated on the official PlantVillage test split,
+containing **10,709 images across 38 classes**, after training
+with an independent validation subset.
+
+The following results correspond to the checkpoint selected
+using the lowest validation loss.
 
 | Metric | Score |
 |--------|-------|
-| Accuracy | **99.79%** |
-| Macro F1-score | **99.69%** |
-| Weighted F1-score | **99.79%** |
+| Accuracy | **99.65%** |
+| Macro Precision | **99.37%** |
+| Macro Recall | **99.58%** |
+| Macro F1-score | **99.47%** |
+| Weighted F1-score | **99.66%** |
 
-Both best-loss and best-accuracy checkpoints achieved identical test performance.
+These results were obtained using the revised evaluation protocol,
+where the test split is not used for early stopping or checkpoint
+selection.
 
 ------------------------------------------------------------------------
 
@@ -337,10 +359,13 @@ Both best-loss and best-accuracy checkpoints achieved identical test performance
 The project provides:
 
 -   Fixed random seed
--   Centralized configuration
--   Deterministic experiment structure
--   Saved checkpoints
--   Automated result logging
+-   Centralized experiment configuration
+-   Deterministic, stratified train/validation splitting
+-   Separate test set for final evaluation
+-   Consistent class mapping across dataset splits
+-   Optional dataset preflight validation
+-   Saved model checkpoints
+-   Automated training and evaluation logging
 
 ------------------------------------------------------------------------
 

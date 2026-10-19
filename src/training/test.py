@@ -80,7 +80,9 @@ test_dataset = PlantDataset(
     class_to_idx=class_to_idx,
     transform=get_transform(
         augment=False
-    )
+    ),
+    preflight_check=True,
+    fail_on_error=True,
 )
 
 test_loader = DataLoader(
